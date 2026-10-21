@@ -1,0 +1,44 @@
+name: Build Windows exe
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - run: npm ci
+
+      - name: Build portable exe
+        run: npm run dist
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: false
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: MatjipExpedition-windows
+          path: dist/*.exe
+
+      # Every merge to main publishes the exe as the latest GitHub release.
+      - name: Publish release
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: build-${{ github.run_number }}
+          name: 맛집 원정대 (빌드 ${{ github.run_number }})
+          body: 아래 Assets에서 `MatjipExpedition-*.exe`를 받아 더블클릭하면 설치 없이 바로 실행됩니다.
+          files: dist/*.exe
+          make_latest: true

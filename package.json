@@ -1,0 +1,26 @@
+{
+  "name": "web-eatventure",
+  "productName": "맛집 원정대",
+  "version": "1.0.0",
+  "description": "방치형 식당 경영 게임",
+  "author": "kimjaehyuen",
+  "license": "UNLICENSED",
+  "private": true,
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "dist": "electron-builder --win portable --x64 --publish never"
+  },
+  "build": {
+    "appId": "io.github.kimjaehyuen.matjip",
+    "productName": "MatjipExpedition",
+    "files": ["main.js", "index.html", "build/icon.png"],
+    "directories": { "output": "dist", "buildResources": "build" },
+    "win": { "target": "portable", "icon": "build/icon.png" },
+    "portable": { "artifactName": "MatjipExpedition-${version}.exe" }
+  },
+  "devDependencies": {
+    "electron": "33.2.1",
+    "electron-builder": "25.1.8"
+  }
+}
