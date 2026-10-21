@@ -1,0 +1,793 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>맛집 원정대</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Jua&display=swap">
+<style>
+/* Layout: one-screen phone-shaped game — HUD on top, canvas restaurant in the middle, bottom-sheet menus and a nav bar. Single deliberate look (night-market navy + mustard). */
+:root {
+  --ink: #18202e;
+  --panel: #232d40;
+  --panel-2: #2d3a52;
+  --line: #3b4a66;
+  --text: #f4f1e8;
+  --muted: #a9b3c7;
+  --gold: #ffc23d;
+  --gold-deep: #c98b00;
+  --cash: #5ad68a;
+  --gem: #6fc8ff;
+  --danger: #ff7a6b;
+  --font: "Jua", "Apple SD Gothic Neo", "Malgun Gothic", "Noto Sans KR", system-ui, sans-serif;
+  color-scheme: dark;
+}
+html, body { height: 100%; }
+[hidden] { display: none !important; }
+body {
+  background: var(--ink); color: var(--text); font-family: var(--font);
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 8px; box-sizing: border-box; overflow: hidden;
+  -webkit-user-select: none; user-select: none; -webkit-tap-highlight-color: transparent;
+}
+button { font-family: var(--font); color: var(--text); cursor: pointer; border: 0; }
+button:focus-visible { outline: 3px solid var(--gold); outline-offset: 2px; }
+button:disabled { cursor: not-allowed; opacity: .45; }
+#app { height: 100%; max-width: 480px; margin: 0 auto; display: flex; flex-direction: column; gap: 8px; position: relative; }
+
+/* HUD */
+.hud { display: grid; gap: 6px; }
+.hud-top { display: flex; align-items: center; gap: 8px; }
+.city { flex: 1; min-width: 0; }
+.city-name { font-size: 17px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.city-sub { font-size: 12px; color: var(--muted); }
+.prog { height: 10px; background: var(--panel-2); border-radius: 6px; overflow: hidden; margin-top: 4px; }
+.prog > i { display: block; height: 100%; width: 0; background: linear-gradient(90deg, var(--gold-deep), var(--gold)); transition: width .3s; }
+.next-city { background: var(--gold); color: var(--ink); padding: 8px 10px; border-radius: 10px; font-size: 14px; animation: pulse 1s infinite alternate; }
+@keyframes pulse { to { transform: scale(1.06); } }
+.hud-row { display: flex; gap: 6px; align-items: stretch; }
+.pill { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 6px 10px; display: flex; align-items: center; gap: 6px; font-size: 18px; font-variant-numeric: tabular-nums; min-width: 0; }
+.pill.cash { flex: 1; color: var(--cash); }
+.pill.gem { color: var(--gem); }
+.pill small { font-size: 11px; color: var(--muted); }
+.boost { background: var(--panel); border: 1px solid var(--gold-deep); border-radius: 12px; padding: 4px 10px; font-size: 13px; line-height: 1.15; color: var(--gold); }
+.boost.on { background: var(--gold); color: var(--ink); }
+
+/* Stage */
+.stage { flex: 1; min-height: 0; display: grid; place-items: center; position: relative; }
+canvas { display: block; border-radius: 14px; touch-action: manipulation; box-shadow: 0 6px 24px rgba(0,0,0,.4); }
+
+/* Nav */
+.nav { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+.nav button { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 8px 4px; font-size: 14px; position: relative; display: grid; gap: 2px; justify-items: center; }
+.nav button .ic { font-size: 20px; }
+.badge { position: absolute; top: -6px; right: -4px; background: var(--danger); color: #fff; font-size: 11px; border-radius: 9px; min-width: 18px; padding: 1px 5px; }
+
+/* Sheet */
+.backdrop { position: absolute; inset: 0; background: rgba(8,12,20,.45); z-index: 20; }
+.sheet { position: absolute; left: 0; right: 0; bottom: 0; max-height: 62%; overflow: auto; background: var(--panel); border: 1px solid var(--line); border-radius: 18px 18px 12px 12px; z-index: 21; padding: 14px; display: grid; gap: 10px; box-shadow: 0 -8px 30px rgba(0,0,0,.45); }
+.sheet h2 { margin: 0; font-weight: 400; font-size: 20px; display: flex; align-items: center; gap: 8px; }
+.sheet h2 .x { margin-left: auto; background: var(--panel-2); width: 32px; height: 32px; border-radius: 50%; font-size: 16px; }
+.muted { color: var(--muted); font-size: 13px; }
+.row { display: flex; align-items: center; gap: 10px; background: var(--panel-2); border-radius: 12px; padding: 10px; }
+.row .emo { font-size: 28px; width: 40px; text-align: center; flex: none; }
+.row .info { flex: 1; min-width: 0; }
+.row .t { font-size: 16px; }
+.row .d { font-size: 12px; color: var(--muted); }
+.row.done { opacity: .5; }
+.buy { background: var(--cash); color: #0f2a1a; border-radius: 10px; padding: 8px 10px; font-size: 14px; min-width: 84px; font-variant-numeric: tabular-nums; }
+.buy.gold { background: var(--gold); color: var(--ink); }
+.buy.gemb { background: var(--gem); color: #0b2333; }
+.big { font-size: 18px; padding: 12px; width: 100%; }
+.stats { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.stat { background: var(--panel-2); border-radius: 10px; padding: 8px 10px; }
+.stat b { display: block; font-weight: 400; font-size: 17px; font-variant-numeric: tabular-nums; }
+.stat span { font-size: 12px; color: var(--muted); }
+.stat .up { color: var(--cash); font-size: 13px; }
+.seg { display: flex; background: var(--panel-2); border-radius: 10px; padding: 3px; gap: 3px; }
+.seg button { flex: 1; background: transparent; border-radius: 8px; padding: 6px; font-size: 14px; color: var(--muted); }
+.seg button.on { background: var(--line); color: var(--text); }
+.ms { display: flex; gap: 4px; }
+.ms span { flex: 1; text-align: center; font-size: 11px; padding: 4px 0; border-radius: 6px; background: var(--panel-2); color: var(--muted); }
+.ms span.hit { background: var(--gold); color: var(--ink); }
+.cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 8px; }
+.card { background: var(--panel-2); border-radius: 12px; padding: 10px 6px; text-align: center; display: grid; gap: 3px; border: 2px solid transparent; }
+.card.r1 { border-color: #7aa0d8; } .card.r2 { border-color: #c48bff; }
+.card.locked { opacity: .4; }
+.card .emo { font-size: 30px; }
+.card .n { font-size: 14px; }
+.card .lv { font-size: 12px; color: var(--gold); }
+.card .eff { font-size: 11px; color: var(--muted); }
+.card .bar { height: 5px; background: var(--ink); border-radius: 3px; overflow: hidden; }
+.card .bar i { display: block; height: 100%; background: var(--gold); }
+.chest-row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.chest { background: var(--panel-2); border-radius: 12px; padding: 12px; text-align: center; display: grid; gap: 6px; }
+.chest .emo { font-size: 40px; }
+.reveal { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; }
+.reveal .card { width: 92px; animation: pop .35s ease-out backwards; }
+@keyframes pop { from { transform: scale(.3) rotate(-12deg); opacity: 0; } }
+
+.toast { position: absolute; left: 50%; top: 120px; transform: translateX(-50%); background: var(--ink); border: 1px solid var(--gold); color: var(--gold); padding: 8px 14px; border-radius: 12px; z-index: 40; font-size: 15px; white-space: nowrap; pointer-events: none; transition: opacity .3s; }
+.modal { position: absolute; inset: 0; z-index: 30; display: grid; place-items: center; background: rgba(8,12,20,.6); padding: 16px; }
+.modal .box { background: var(--panel); border: 2px solid var(--gold); border-radius: 18px; padding: 20px; text-align: center; display: grid; gap: 10px; max-width: 320px; width: 100%; }
+.modal .box .emo { font-size: 48px; }
+.modal .box h3 { margin: 0; font-weight: 400; font-size: 22px; color: var(--gold); }
+@media (prefers-reduced-motion: reduce) { .next-city, .reveal .card { animation: none; } }
+</style>
+</head>
+<body>
+<div id="app">
+  <div class="hud">
+    <div class="hud-top">
+      <div class="city">
+        <div class="city-name" id="cityName">-</div>
+        <div class="city-sub" id="citySub">-</div>
+        <div class="prog"><i id="progBar"></i></div>
+      </div>
+      <button class="next-city" id="nextCityBtn" hidden>다음 도시 ▶</button>
+    </div>
+    <div class="hud-row">
+      <div class="pill cash">💵 <span id="cash">0</span> <small id="rate"></small></div>
+      <div class="pill gem">💎 <span id="gems">0</span></div>
+      <button class="boost" id="boostBtn">러시 아워<br><span id="boostTxt">수익 x2</span></button>
+    </div>
+  </div>
+  <div class="stage" id="stage"><canvas id="cv"></canvas></div>
+  <div class="nav">
+    <button id="navUp"><span class="ic">📈</span>업그레이드<span class="badge" id="upBadge" hidden></span></button>
+    <button id="navChest"><span class="ic">🎁</span>상자<span class="badge" id="chestBadge" hidden>!</span></button>
+    <button id="navCards"><span class="ic">🧑‍🍳</span>장비</button>
+    <button id="navMenu"><span class="ic">⚙️</span>메뉴</button>
+  </div>
+  <div class="backdrop" id="backdrop" hidden></div>
+  <div class="sheet" id="sheet" hidden></div>
+  <div id="modalHost"></div>
+</div>
+
+<script>
+(() => {
+'use strict';
+const W = 360, H = 560;
+const MAX_LVL = 100;
+const SAVE_KEY = 'matjip-expedition-v1';
+
+const CITIES = [
+  { name: '바닷가 버거 스탠드', tileA: '#2f7a76', tileB: '#2a6c69', dine: '#8a5a3c', dine2: '#7d5236', station: '#e8e2d4', trim: '#d9534f', counter: '#b5452f',
+    foods: [['🍔','버거'],['🍟','감자튀김'],['🥤','탄산음료'],['🌭','핫도그'],['🍦','소프트콘'],['🥗','샐러드']] },
+  { name: '골목 초밥 바', tileA: '#3b4e6b', tileB: '#34465f', dine: '#a07a4f', dine2: '#936f47', station: '#efe6d2', trim: '#2f6fb0', counter: '#6b4a2b',
+    foods: [['🍣','초밥'],['🍙','주먹밥'],['🍜','라멘'],['🍤','새우튀김'],['🍵','녹차'],['🍡','경단']] },
+  { name: '광장 피자 하우스', tileA: '#6c7a3a', tileB: '#617034', dine: '#9b4a3a', dine2: '#8c4234', station: '#f1e9da', trim: '#2f8f4e', counter: '#7a3f2a',
+    foods: [['🍕','피자'],['🍝','파스타'],['🥖','바게트'],['🧀','치즈 플래터'],['🍇','포도주스'],['🍰','티라미수']] },
+  { name: '사막 타코 트럭', tileA: '#b0703a', tileB: '#a26634', dine: '#d2a56a', dine2: '#c69a60', station: '#f6ead3', trim: '#2fa39b', counter: '#8a3e2a',
+    foods: [['🌮','타코'],['🌯','부리토'],['🫓','케사디야'],['🥑','과카몰리'],['🌶️','칠리'],['🍹','레모네이드']] },
+  { name: '구름 디저트 성', tileA: '#8a6fb5', tileB: '#7e64a8', dine: '#d9a6c4', dine2: '#cf9aba', station: '#fbf2f7', trim: '#e0609a', counter: '#6d4f9a',
+    foods: [['🧁','컵케이크'],['🍩','도넛'],['🥞','팬케이크'],['🍫','초콜릿'],['🍮','푸딩'],['🎂','케이크']] },
+];
+const STATION_POS = [[48,64],[312,64],[48,136],[312,136],[48,208],[312,208]];
+const SLOT_X = [72,144,216,288];
+const SLOT_Y = 296;
+const DOOR = [180, 556];
+const COUNTER_Y = 246;
+
+const CARDS = [
+  { id: 'ladle',  emo: '🥄', name: '황금 국자', rar: 0, eff: l => `전체 수익 +${l*10}%` },
+  { id: 'hat',    emo: '👒', name: '장인 모자', rar: 0, eff: l => `요리 속도 +${l*6}%` },
+  { id: 'sign',   emo: '🪧', name: '네온 간판', rar: 0, eff: l => `손님 방문 +${l*7}%` },
+  { id: 'shoes',  emo: '👟', name: '롤러 운동화', rar: 0, eff: l => `셰프 이동 +${l*8}%` },
+  { id: 'safe',   emo: '🧰', name: '튼튼한 금고', rar: 1, eff: l => `오프라인 수익 +${l*15}%` },
+  { id: 'coupon', emo: '🎟️', name: '할인 쿠폰', rar: 1, eff: l => `업그레이드 비용 -${l*3}%` },
+  { id: 'coin',   emo: '🪙', name: '행운의 동전', rar: 1, eff: l => `VIP 손님 +${l*2}%p` },
+  { id: 'intern', emo: '📜', name: '견습생 계약서', rar: 2, eff: l => `셰프 +${internBonus(l)}명` },
+];
+const CARD_TH = [1,3,6,10,15,21,28,36,45,55]; // cumulative copies for lvl 1..10
+function internBonus(l) { return l >= 10 ? 3 : l >= 5 ? 2 : l >= 1 ? 1 : 0; }
+
+// ---------- state ----------
+let S;
+function freshCity(city) {
+  return { city, cash: 0, st: [1,0,0,0,0,0], ups: Array(15).fill(0) };
+}
+function newSave() {
+  return Object.assign(freshCity(0), { v: 1, gems: 30, cards: {}, boostUntil: 0, boostCd: 0, freeGemAt: 0, rate: 0, lastSave: Date.now(), totalEarned: 0, seenIntro: false });
+}
+function load() {
+  try {
+    const raw = localStorage.getItem(SAVE_KEY);
+    if (raw) return Object.assign(newSave(), JSON.parse(raw));
+  } catch (e) {}
+  return null;
+}
+function save() {
+  S.lastSave = Date.now();
+  try { localStorage.setItem(SAVE_KEY, JSON.stringify(S)); } catch (e) {}
+}
+
+// ---------- economy ----------
+const cityDef = () => CITIES[S.city % CITIES.length];
+const cityMult = () => Math.pow(12, S.city);
+const baseProfit = i => 2 * Math.pow(5, i) * cityMult();
+const baseTime = i => 2 + 0.55 * i;
+const unlockCost = i => i === 0 ? 0 : baseProfit(i) * 22;
+const cardLvl = id => { const c = (S.cards[id] || 0); let l = 0; while (l < 10 && c >= CARD_TH[l]) l++; return l; };
+const costMult = () => 1 - 0.03 * cardLvl('coupon');
+function upgCost(i, L) { return baseProfit(i) * 2.5 * Math.pow(1.12, L - 1) * costMult(); }
+function msProfit(L) { return (L >= 25 ? 2 : 1) * (L >= 75 ? 2 : 1) * (L >= 100 ? 3 : 1); }
+function msSpeed(L) { return (L >= 10 ? 1.5 : 1) * (L >= 50 ? 1.5 : 1); }
+const MILESTONES = [[10,'속도 x1.5'],[25,'수익 x2'],[50,'속도 x1.5'],[75,'수익 x2'],[100,'수익 x3']];
+
+function cityUpgrades() {
+  const f = cityDef().foods, p = baseProfit;
+  return [
+    { k: 'chef', name: '셰프 고용', emo: '🧑‍🍳', d: '셰프 +1명', cost: p(0) * 18 },
+    { k: 'food', i: 0, x: 2, cost: p(0) * 70 },
+    { k: 'cust', name: '전단지 배포', emo: '📣', d: '손님 방문 +30%', cost: p(1) * 25 },
+    { k: 'food', i: 1, x: 2, cost: p(1) * 70 },
+    { k: 'speed', name: '날 선 칼', emo: '🔪', d: '셰프 요리·이동 +25%', cost: p(1) * 160 },
+    { k: 'chef', name: '셰프 고용', emo: '🧑‍🍳', d: '셰프 +1명', cost: p(2) * 24 },
+    { k: 'food', i: 2, x: 2, cost: p(2) * 70 },
+    { k: 'cust', name: '야외 테라스', emo: '⛱️', d: '손님 방문 +30%', cost: p(2) * 220 },
+    { k: 'food', i: 0, x: 3, cost: p(3) * 45 },
+    { k: 'food', i: 3, x: 2, cost: p(3) * 70 },
+    { k: 'chef', name: '셰프 고용', emo: '🧑‍🍳', d: '셰프 +1명', cost: p(3) * 170 },
+    { k: 'food', i: 4, x: 2, cost: p(4) * 70 },
+    { k: 'speed', name: '최신 화구', emo: '🔥', d: '셰프 요리·이동 +25%', cost: p(4) * 160 },
+    { k: 'food', i: 5, x: 2, cost: p(5) * 70 },
+    { k: 'all', name: '미슐랭 별', emo: '⭐', d: '모든 음식 수익 x2', cost: p(5) * 320 },
+  ].map((u, idx) => {
+    u.idx = idx;
+    if (u.k === 'food') { u.emo = f[u.i][0]; u.name = `${f[u.i][1]} 레시피`; u.d = `${f[u.i][1]} 수익 x${u.x}`; }
+    u.cost *= costMult();
+    return u;
+  });
+}
+function upsOf(kind) { const L = cityUpgrades(); return L.filter(u => u.k === kind && S.ups[u.idx]); }
+function foodMult(i) {
+  let m = 1;
+  for (const u of cityUpgrades()) if (S.ups[u.idx] && ((u.k === 'food' && u.i === i) || u.k === 'all')) m *= (u.x || 2);
+  return m;
+}
+const boostOn = () => Date.now() < S.boostUntil;
+function profit(i, L = S.st[i]) {
+  return baseProfit(i) * L * msProfit(L) * foodMult(i) * (1 + 0.1 * cardLvl('ladle')) * (boostOn() ? 2 : 1);
+}
+const speedUps = () => upsOf('speed').length;
+function cookTime(i, L = S.st[i]) { return baseTime(i) / msSpeed(L) / ((1 + 0.25 * speedUps()) * (1 + 0.06 * cardLvl('hat'))); }
+const chefSpeed = () => 85 * (1 + 0.25 * speedUps()) * (1 + 0.08 * cardLvl('shoes'));
+const chefCount = () => 1 + upsOf('chef').length + internBonus(cardLvl('intern'));
+const spawnInterval = () => 3.4 / ((1 + 0.3 * upsOf('cust').length) * (1 + 0.07 * cardLvl('sign')));
+const vipChance = () => 0.04 + 0.02 * cardLvl('coin');
+const unlockedCount = () => S.st.filter(l => l > 0).length;
+function cityProgress() {
+  const ups = S.ups.reduce((a, b) => a + b, 0);
+  return (ups + unlockedCount()) / (15 + 6);
+}
+
+// ---------- formatting ----------
+function fmt(n) {
+  if (!isFinite(n)) return '∞';
+  if (n < 1000) return String(Math.floor(n));
+  const e = Math.floor(Math.log10(n) / 3);
+  const v = n / Math.pow(10, e * 3);
+  const s = v < 10 ? v.toFixed(2) : v < 100 ? v.toFixed(1) : v.toFixed(0);
+  const units = ['K','M','B','T'];
+  if (e <= 4) return s + units[e - 1];
+  const k = e - 5;
+  return s + String.fromCharCode(97 + Math.floor(k / 26) % 26) + String.fromCharCode(97 + k % 26);
+}
+function fmtTime(sec) {
+  sec = Math.max(0, Math.ceil(sec));
+  const m = Math.floor(sec / 60), s = sec % 60;
+  return m > 0 ? `${m}:${String(s).padStart(2, '0')}` : `${s}초`;
+}
+
+// ---------- world ----------
+const cv = document.getElementById('cv');
+const ctx = cv.getContext('2d');
+let chefs = [], customers = [], floaters = [], spawnT = 1, earnWindow = 0, earnWindowT = 0;
+const SKINS = ['#f2c9a0','#d9a273','#a8704a','#7a4b2e','#f7d8b8'];
+const SHIRTS = ['#e8604c','#4c8ee8','#57b86a','#e8b44c','#9b6be8','#e86ba8','#4cc4c4'];
+const rand = a => a[Math.floor(Math.random() * a.length)];
+
+function syncChefs() {
+  const n = chefCount();
+  while (chefs.length < n) {
+    const k = chefs.length;
+    chefs.push({ x: 180, y: 228, state: 'idle', task: null, t: 0, skin: rand(SKINS), k });
+  }
+}
+function chefHome(c) { return [110 + (c.k % 6) * 28, 222]; }
+function stationSpot(i, c) {
+  const [x, y] = STATION_POS[i];
+  const off = ((c.k % 3) - 1) * 8;
+  return [x < 180 ? x + 54 : x - 54, y + off];
+}
+function moveTo(e, tx, ty, sp, dt) {
+  const dx = tx - e.x, dy = ty - e.y, d = Math.hypot(dx, dy);
+  if (d <= sp * dt || d < 0.5) { e.x = tx; e.y = ty; return true; }
+  e.x += dx / d * sp * dt; e.y += dy / d * sp * dt; e.dir = dx < 0 ? -1 : 1;
+  return false;
+}
+function spawnCustomer() {
+  const used = new Set(customers.filter(c => c.state !== 'leave').map(c => c.slot));
+  const free = SLOT_X.map((_, i) => i).filter(i => !used.has(i));
+  if (!free.length) return false;
+  const slot = rand(free);
+  const open = S.st.map((l, i) => l > 0 ? i : -1).filter(i => i >= 0);
+  const n = open.length >= 2 && Math.random() < 0.3 ? 2 : 1;
+  const items = [];
+  for (let j = 0; j < n; j++) items.push({ food: rand(open), st: 'wait' });
+  customers.push({ x: DOOR[0] + (Math.random() * 30 - 15), y: DOOR[1], slot, state: 'enter', items, vip: Math.random() < vipChance(), skin: rand(SKINS), shirt: rand(SHIRTS), bob: Math.random() * 6 });
+  return true;
+}
+function earn(amount, x, y, color) {
+  S.cash += amount; S.totalEarned += amount; earnWindow += amount;
+  floaters.push({ x, y, txt: '+' + fmt(amount), t: 0, color: color || '#5ad68a' });
+}
+
+function update(dt) {
+  syncChefs();
+  // customers
+  spawnT -= dt;
+  if (spawnT <= 0) { spawnT = spawnCustomer() ? spawnInterval() * (0.7 + Math.random() * 0.6) : 0.5; }
+  for (const c of customers) {
+    if (c.state === 'enter') {
+      const tx = SLOT_X[c.slot];
+      const target = c.y > 380 ? [180 + (c.x - 180) * 0.2, 380] : [tx, SLOT_Y];
+      if (moveTo(c, target[0], target[1], 110, dt) && target[1] === SLOT_Y) c.state = 'wait';
+    } else if (c.state === 'leave') {
+      const target = c.y < 370 ? [180 + (c.slot - 1.5) * 10, 380] : DOOR;
+      if (moveTo(c, target[0], target[1], 120, dt) && target === DOOR) c.gone = true;
+    }
+  }
+  customers = customers.filter(c => !c.gone);
+  // chefs
+  const sp = chefSpeed();
+  for (const ch of chefs) {
+    if (ch.state === 'idle') {
+      let found = null;
+      outer: for (const c of customers) {
+        if (c.state !== 'wait') continue;
+        for (const it of c.items) if (it.st === 'wait') { found = [c, it]; break outer; }
+      }
+      if (found) {
+        found[1].st = 'assigned';
+        ch.task = { cust: found[0], item: found[1] };
+        ch.state = 'toStation';
+      } else {
+        const [hx, hy] = chefHome(ch);
+        moveTo(ch, hx, hy, sp * 0.6, dt);
+      }
+    } else if (ch.state === 'toStation') {
+      const [tx, ty] = stationSpot(ch.task.item.food, ch);
+      if (moveTo(ch, tx, ty, sp, dt)) { ch.state = 'cooking'; ch.t = 0; ch.dur = cookTime(ch.task.item.food); }
+    } else if (ch.state === 'cooking') {
+      ch.t += dt;
+      if (ch.t >= ch.dur) ch.state = 'toCounter';
+    } else if (ch.state === 'toCounter') {
+      const c = ch.task.cust;
+      if (moveTo(ch, SLOT_X[c.slot], 230, sp, dt)) {
+        const i = ch.task.item.food;
+        const amt = profit(i) * (c.vip ? 5 : 1);
+        earn(amt, SLOT_X[c.slot], 268, c.vip ? '#ffc23d' : null);
+        ch.task.item.st = 'done';
+        if (c.items.every(it => it.st === 'done')) {
+          c.state = 'leave';
+          floaters.push({ x: c.x, y: c.y - 30, txt: c.vip ? '👑' : '❤️', t: 0, emoji: true });
+        }
+        ch.task = null; ch.state = 'idle';
+      }
+    }
+  }
+  // floaters
+  for (const f of floaters) { f.t += dt; f.y -= 28 * dt; }
+  floaters = floaters.filter(f => f.t < 1.2);
+  // rate
+  earnWindowT += dt;
+  if (earnWindowT >= 10) { S.rate = S.rate ? S.rate * 0.6 + 0.4 * earnWindow / earnWindowT : earnWindow / earnWindowT; earnWindow = 0; earnWindowT = 0; }
+}
+
+// ---------- drawing ----------
+function rr(x, y, w, h, r) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y); ctx.arcTo(x + w, y, x + w, y + h, r); ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r); ctx.arcTo(x, y, x + w, y, r); ctx.closePath();
+}
+function emoji(e, x, y, size) {
+  ctx.font = `${size}px "Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",sans-serif`;
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillText(e, x, y);
+}
+function text(t, x, y, size, color, align = 'center') {
+  ctx.font = `${size}px Jua, "Apple SD Gothic Neo", "Malgun Gothic", sans-serif`;
+  ctx.textAlign = align; ctx.textBaseline = 'middle'; ctx.fillStyle = color; ctx.fillText(t, x, y);
+}
+function nextLockedIndex() { return S.st.findIndex(l => l === 0); }
+
+let time = 0;
+function draw() {
+  const cd = cityDef();
+  ctx.clearRect(0, 0, W, H);
+  // kitchen tiles
+  for (let y = 0; y < COUNTER_Y; y += 24) for (let x = 0; x < W; x += 24) {
+    ctx.fillStyle = ((x + y) / 24) % 2 ? cd.tileA : cd.tileB; ctx.fillRect(x, y, 24, 24);
+  }
+  // back wall
+  ctx.fillStyle = cd.trim; ctx.fillRect(0, 0, W, 16);
+  ctx.fillStyle = 'rgba(0,0,0,.18)'; ctx.fillRect(0, 16, W, 4);
+  // dining floor
+  for (let y = COUNTER_Y; y < H; y += 20) { ctx.fillStyle = (y / 20) % 2 ? cd.dine : cd.dine2; ctx.fillRect(0, y, W, 20); }
+  // tables
+  for (const [tx, ty] of [[62,400],[298,400],[62,490],[298,490]]) {
+    ctx.fillStyle = 'rgba(0,0,0,.18)'; ctx.beginPath(); ctx.ellipse(tx, ty + 6, 30, 12, 0, 0, Math.PI * 2); ctx.fill();
+    for (const dx of [-34, 34]) { ctx.fillStyle = '#5a3a26'; rr(tx + dx - 8, ty - 8, 16, 16, 5); ctx.fill(); }
+    ctx.fillStyle = '#f5efe3'; ctx.beginPath(); ctx.ellipse(tx, ty, 26, 18, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.strokeStyle = cd.trim; ctx.lineWidth = 2; ctx.stroke();
+  }
+  // door mat
+  ctx.fillStyle = cd.trim; rr(150, H - 14, 60, 14, 4); ctx.fill();
+  text('입구', 180, H - 7, 10, '#fff');
+
+  // stations
+  const nli = nextLockedIndex();
+  for (let i = 0; i < 6; i++) {
+    const [x, y] = STATION_POS[i], L = S.st[i];
+    ctx.fillStyle = 'rgba(0,0,0,.25)'; rr(x - 38, y - 26, 76, 60, 10); ctx.fill();
+    ctx.fillStyle = cd.station; rr(x - 38, y - 30, 76, 58, 10); ctx.fill();
+    ctx.fillStyle = cd.trim; rr(x - 38, y + 16, 76, 12, 6); ctx.fill();
+    if (L > 0) {
+      emoji(cd.foods[i][0], x, y - 6, 26);
+      text('Lv ' + L, x, y + 22, 11, '#fff');
+      // milestone progress
+      const ms = MILESTONES.find(m => m[0] > L);
+      if (ms) {
+        const prev = [...MILESTONES].reverse().find(m => m[0] <= L);
+        const p0 = prev ? prev[0] : 0, frac = (L - p0) / (ms[0] - p0);
+        ctx.fillStyle = 'rgba(0,0,0,.15)'; rr(x - 30, y - 27, 60, 4, 2); ctx.fill();
+        ctx.fillStyle = '#ffc23d'; rr(x - 30, y - 27, 60 * frac, 4, 2); ctx.fill();
+      } else { text('MAX', x - 22, y - 22, 10, '#c98b00'); }
+      if (L < MAX_LVL && S.cash >= upgCost(i, L)) {
+        const bob = Math.sin(time * 6) * 2;
+        ctx.fillStyle = '#5ad68a'; ctx.beginPath(); ctx.arc(x + 32, y - 26 + bob, 9, 0, Math.PI * 2); ctx.fill();
+        text('▲', x + 32, y - 26 + bob, 11, '#0f2a1a');
+      }
+    } else {
+      ctx.fillStyle = 'rgba(20,26,40,.62)'; rr(x - 38, y - 30, 76, 58, 10); ctx.fill();
+      if (i === nli) {
+        const can = S.cash >= unlockCost(i);
+        emoji('🔒', x, y - 8, 18);
+        ctx.fillStyle = can ? '#5ad68a' : 'rgba(0,0,0,.4)'; rr(x - 32, y + 6, 64, 18, 9); ctx.fill();
+        text('💵' + fmt(unlockCost(i)), x, y + 15, 11, can ? '#0f2a1a' : '#fff');
+      } else text('?', x, y - 2, 22, 'rgba(255,255,255,.35)');
+    }
+  }
+  // counter
+  ctx.fillStyle = 'rgba(0,0,0,.25)'; ctx.fillRect(0, COUNTER_Y + 4, W, 22);
+  ctx.fillStyle = cd.counter; ctx.fillRect(0, COUNTER_Y - 6, W, 24);
+  ctx.fillStyle = 'rgba(255,255,255,.18)'; ctx.fillRect(0, COUNTER_Y - 6, W, 5);
+
+  // entities sorted by y
+  const ents = [...chefs.map(c => ({ y: c.y, c, chef: true })), ...customers.map(c => ({ y: c.y, c }))].sort((a, b) => a.y - b.y);
+  for (const e of ents) e.chef ? drawChef(e.c) : drawCustomer(e.c);
+  // redraw counter front over chefs standing at it
+  ctx.fillStyle = cd.counter; ctx.fillRect(0, COUNTER_Y + 2, W, 16);
+  for (const c of chefs) if (c.state === 'toCounter' && c.y > 222) emoji(cd.foods[c.task.item.food][0], c.x, COUNTER_Y + 4, 14);
+  for (const c of customers) if (c.state === 'wait') drawBubble(c);
+
+  for (const f of floaters) {
+    ctx.globalAlpha = Math.max(0, 1 - f.t / 1.2);
+    if (f.emoji) emoji(f.txt, f.x, f.y, 16);
+    else { ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(0,0,0,.55)'; ctx.font = '15px Jua, sans-serif'; ctx.textAlign = 'center'; ctx.strokeText(f.txt, f.x, f.y); text(f.txt, f.x, f.y, 15, f.color); }
+    ctx.globalAlpha = 1;
+  }
+  if (boostOn()) {
+    ctx.strokeStyle = `rgba(255,194,61,${0.5 + Math.sin(time * 5) * 0.3})`; ctx.lineWidth = 6; ctx.strokeRect(3, 3, W - 6, H - 6);
+  }
+}
+function person(x, y, skin, shirt, walking) {
+  const b = walking ? Math.sin(time * 14 + x) * 1.5 : 0;
+  ctx.fillStyle = 'rgba(0,0,0,.22)'; ctx.beginPath(); ctx.ellipse(x, y + 10, 11, 4, 0, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = shirt; ctx.beginPath(); ctx.arc(x, y + b, 11, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = skin; ctx.beginPath(); ctx.arc(x, y - 13 + b, 7.5, 0, Math.PI * 2); ctx.fill();
+  return b;
+}
+function drawChef(c) {
+  const moving = c.state === 'toStation' || c.state === 'toCounter';
+  const b = person(c.x, c.y, c.skin, '#ffffff', moving);
+  ctx.fillStyle = '#e04b3a'; ctx.fillRect(c.x - 8, c.y - 4 + b, 16, 3);
+  // hat
+  ctx.fillStyle = '#ffffff'; ctx.strokeStyle = 'rgba(0,0,0,.15)'; ctx.lineWidth = 1;
+  ctx.fillRect(c.x - 6, c.y - 24 + b, 12, 5);
+  for (const dx of [-5, 0, 5]) { ctx.beginPath(); ctx.arc(c.x + dx, c.y - 27 + b, 4.5, 0, Math.PI * 2); ctx.fill(); }
+  if (c.state === 'toCounter') emoji(cityDef().foods[c.task.item.food][0], c.x + 12, c.y - 6 + b, 15);
+  if (c.state === 'cooking') {
+    const f = Math.min(1, c.t / c.dur);
+    ctx.fillStyle = 'rgba(0,0,0,.5)'; rr(c.x - 15, c.y - 42, 30, 6, 3); ctx.fill();
+    ctx.fillStyle = '#5ad68a'; rr(c.x - 15, c.y - 42, 30 * f, 6, 3); ctx.fill();
+    if (Math.floor(time * 4) % 2) { ctx.fillStyle = 'rgba(255,255,255,.6)'; ctx.beginPath(); ctx.arc(c.x + (c.x < 180 ? -18 : 18), c.y - 30 - (time * 20 % 10), 3, 0, Math.PI * 2); ctx.fill(); }
+  }
+}
+function drawCustomer(c) {
+  const b = person(c.x, c.y, c.skin, c.vip ? '#ffc23d' : c.shirt, c.state !== 'wait');
+  ctx.fillStyle = '#3a2a20'; ctx.beginPath(); ctx.arc(c.x, c.y - 15 + b, 7.5, Math.PI, Math.PI * 2); ctx.fill();
+  if (c.vip) emoji('👑', c.x, c.y - 26 + b, 13);
+}
+function drawBubble(c) {
+  const pend = c.items.filter(it => it.st !== 'done');
+  if (!pend.length) return;
+  const w = 10 + pend.length * 22, x = c.x - w / 2, y = c.y + 18;
+  ctx.fillStyle = '#fff'; rr(x, y, w, 26, 10); ctx.fill();
+  ctx.beginPath(); ctx.moveTo(c.x - 5, y); ctx.lineTo(c.x, y - 6); ctx.lineTo(c.x + 5, y); ctx.fill();
+  pend.forEach((it, j) => {
+    ctx.globalAlpha = it.st === 'assigned' ? 0.55 : 1;
+    emoji(cityDef().foods[it.food][0], x + 16 + j * 22, y + 13, 16);
+    ctx.globalAlpha = 1;
+  });
+}
+
+// ---------- canvas sizing & input ----------
+const stage = document.getElementById('stage');
+let scale = 1;
+function resize() {
+  const r = stage.getBoundingClientRect();
+  scale = Math.min(r.width / W, r.height / H);
+  const dpr = window.devicePixelRatio || 1;
+  cv.style.width = W * scale + 'px'; cv.style.height = H * scale + 'px';
+  cv.width = Math.round(W * scale * dpr); cv.height = Math.round(H * scale * dpr);
+  ctx.setTransform(scale * dpr, 0, 0, scale * dpr, 0, 0);
+}
+window.addEventListener('resize', resize);
+cv.addEventListener('pointerdown', ev => {
+  const r = cv.getBoundingClientRect();
+  const x = (ev.clientX - r.left) / scale, y = (ev.clientY - r.top) / scale;
+  for (let i = 0; i < 6; i++) {
+    const [sx, sy] = STATION_POS[i];
+    if (Math.abs(x - sx) < 42 && Math.abs(y - sy) < 34) {
+      // tapping a station hurries anyone cooking there
+      for (const c of chefs) if (c.state === 'cooking' && c.task.item.food === i) { c.t += c.dur * 0.15; floaters.push({ x: c.x, y: c.y - 46, txt: '💨', t: 0.4, emoji: true }); }
+      openStation(i);
+      return;
+    }
+  }
+});
+
+// ---------- UI ----------
+const $ = id => document.getElementById(id);
+const sheet = $('sheet'), backdrop = $('backdrop');
+let sheetMode = null, sheetArg = null, buyMode = 1;
+function openSheet(mode, arg) { sheetMode = mode; sheetArg = arg; sheet.hidden = false; backdrop.hidden = false; renderSheet(); }
+function closeSheet() { sheetMode = null; sheet.hidden = true; backdrop.hidden = true; }
+backdrop.addEventListener('click', closeSheet);
+const head = (t) => `<h2>${t}<button class="x" data-act="close" aria-label="닫기">✕</button></h2>`;
+
+function openStation(i) { openSheet('station', i); }
+function bulk(i) {
+  const L = S.st[i];
+  let n = 0, cost = 0;
+  const maxN = buyMode === 'max' ? MAX_LVL - L : Math.min(buyMode, MAX_LVL - L);
+  while (n < maxN) {
+    const c = upgCost(i, L + n);
+    if (buyMode === 'max' && cost + c > S.cash) break;
+    cost += c; n++;
+  }
+  if (buyMode === 'max' && n === 0 && L < MAX_LVL) { n = 1; cost = upgCost(i, L); }
+  return { n, cost };
+}
+function renderStation(i) {
+  const cd = cityDef(), [emo, name] = cd.foods[i], L = S.st[i];
+  if (L === 0) {
+    const nli = nextLockedIndex(), cost = unlockCost(i);
+    return head(`${emo} ${name}`) +
+      `<p class="muted">${i === nli ? `새 조리대를 열면 손님이 ${name}도 주문해요.` : '앞의 조리대를 먼저 열어야 해요.'}</p>
+       <div class="stats"><div class="stat"><span>기본 수익</span><b>💵 ${fmt(profit(i, 1))}</b></div><div class="stat"><span>조리 시간</span><b>${cookTime(i, 1).toFixed(1)}초</b></div></div>
+       <button class="buy big" data-act="unlock" data-i="${i}" ${i !== nli || S.cash < cost ? 'disabled' : ''}>열기 · 💵 ${fmt(cost)}</button>`;
+  }
+  const { n, cost } = bulk(i);
+  const msHtml = MILESTONES.map(m => `<span class="${L >= m[0] ? 'hit' : ''}">${m[0]}<br>${m[1]}</span>`).join('');
+  const maxed = L >= MAX_LVL;
+  return head(`${emo} ${name} <span class="muted">Lv ${L}/${MAX_LVL}</span>`) +
+    `<div class="stats">
+      <div class="stat"><span>1개당 수익</span><b>💵 ${fmt(profit(i))}</b>${maxed ? '' : `<span class="up">→ ${fmt(profit(i, L + n))}</span>`}</div>
+      <div class="stat"><span>조리 시간</span><b>${cookTime(i).toFixed(2)}초</b>${maxed ? '' : `<span class="up">→ ${cookTime(i, L + n).toFixed(2)}초</span>`}</div>
+    </div>
+    <div class="ms">${msHtml}</div>
+    ${maxed ? '<button class="buy big gold" disabled>최고 레벨 달성</button>' : `
+    <div class="seg">${[1, 10, 'max'].map(m => `<button data-act="mode" data-m="${m}" class="${buyMode === m ? 'on' : ''}">${m === 'max' ? 'MAX' : 'x' + m}</button>`).join('')}</div>
+    <button class="buy big" data-act="lvl" data-i="${i}" ${S.cash < cost ? 'disabled' : ''}>레벨 +${n} · 💵 ${fmt(cost)}</button>`}
+    <p class="muted">팁: 요리 중인 조리대를 톡톡 누르면 셰프가 더 빨리 만들어요.</p>`;
+}
+function renderUpgrades() {
+  const list = cityUpgrades().sort((a, b) => (S.ups[a.idx] - S.ups[b.idx]) || (a.cost - b.cost));
+  return head('📈 업그레이드') +
+    `<p class="muted">모든 업그레이드와 조리대 6개를 열면 다음 도시로 갈 수 있어요. 업그레이드마다 💎 2개를 받아요.</p>` +
+    list.map(u => {
+      const done = S.ups[u.idx];
+      const needSt = u.k === 'food' && S.st[u.i] === 0;
+      return `<div class="row ${done ? 'done' : ''}"><div class="emo">${u.emo}</div><div class="info"><div class="t">${u.name}</div><div class="d">${needSt ? '조리대를 먼저 열어야 해요' : u.d}</div></div>
+      ${done ? '<span class="muted">완료</span>' : `<button class="buy" data-act="up" data-idx="${u.idx}" ${S.cash < u.cost || needSt ? 'disabled' : ''}>💵 ${fmt(u.cost)}</button>`}</div>`;
+    }).join('');
+}
+let lastReveal = null;
+function renderChests() {
+  const free = Date.now() >= S.freeGemAt;
+  return head('🎁 상자') +
+    `<div class="row"><div class="emo">💎</div><div class="info"><div class="t">무료 보석</div><div class="d">10분마다 💎 15개</div></div>
+      <button class="buy gemb" data-act="free" ${free ? '' : 'disabled'}>${free ? '받기' : fmtTime((S.freeGemAt - Date.now()) / 1000)}</button></div>
+    <div class="chest-row">
+      <div class="chest"><div class="emo">📦</div><div>나무 상자</div><div class="muted">장비 카드 3장</div><button class="buy gemb" data-act="chest" data-k="0" ${S.gems < 40 ? 'disabled' : ''}>💎 40</button></div>
+      <div class="chest"><div class="emo">🧳</div><div>황금 상자</div><div class="muted">카드 7장 · 희귀 확률 2배</div><button class="buy gemb" data-act="chest" data-k="1" ${S.gems < 120 ? 'disabled' : ''}>💎 120</button></div>
+    </div>
+    ${lastReveal ? `<div class="reveal">${lastReveal.map(id => cardHtml(CARDS.find(c => c.id === id), true)).join('')}</div>` : ''}`;
+}
+function cardHtml(c, mini) {
+  const l = cardLvl(c.id), cnt = S.cards[c.id] || 0;
+  const prev = l ? CARD_TH[l - 1] : 0, next = CARD_TH[l];
+  const frac = l >= 10 ? 1 : (cnt - prev) / (next - prev);
+  return `<div class="card r${c.rar} ${l ? '' : 'locked'}"><div class="emo">${c.emo}</div><div class="n">${c.name}</div>
+    ${mini ? '' : `<div class="lv">${l ? 'Lv ' + l : '미보유'}</div><div class="eff">${c.eff(Math.max(l, 1))}</div><div class="bar"><i style="width:${frac * 100}%"></i></div><div class="eff">${l >= 10 ? 'MAX' : `${cnt}/${next}`}</div>`}</div>`;
+}
+function renderCards() {
+  return head('🧑‍🍳 장비') + `<p class="muted">장비는 도시를 옮겨도 그대로 남아요. 같은 카드를 모으면 레벨이 올라가요.</p>
+    <div class="cards">${CARDS.map(c => cardHtml(c)).join('')}</div>`;
+}
+let resetArmed = false;
+function renderMenu() {
+  return head('⚙️ 메뉴') + `
+    <div class="stats">
+      <div class="stat"><span>현재 도시</span><b>${S.city + 1}번째</b></div>
+      <div class="stat"><span>누적 수익</span><b>💵 ${fmt(S.totalEarned)}</b></div>
+      <div class="stat"><span>셰프</span><b>${chefCount()}명</b></div>
+      <div class="stat"><span>초당 수익</span><b>💵 ${fmt(S.rate || 0)}</b></div>
+    </div>
+    <p class="muted">진행 상황은 이 브라우저에 자동 저장돼요. 창을 닫아 있는 동안에도 일부 수익이 쌓여요(최대 2시간).</p>
+    <button class="buy big ${resetArmed ? '' : 'gold'}" data-act="reset" style="${resetArmed ? 'background:var(--danger);color:#fff' : ''}">${resetArmed ? '정말 처음부터? 한 번 더 누르면 초기화' : '처음부터 다시 하기'}</button>`;
+}
+function renderSheet() {
+  if (!sheetMode) return;
+  const keepScroll = sheet.scrollTop;
+  sheet.innerHTML = sheetMode === 'station' ? renderStation(sheetArg) : sheetMode === 'ups' ? renderUpgrades() : sheetMode === 'chest' ? renderChests() : sheetMode === 'cards' ? renderCards() : renderMenu();
+  sheet.scrollTop = keepScroll;
+}
+function toast(msg) {
+  const t = document.createElement('div'); t.className = 'toast'; t.textContent = msg; $('app').appendChild(t);
+  setTimeout(() => { t.style.opacity = '0'; }, 1400); setTimeout(() => t.remove(), 1800);
+}
+function modal(html) {
+  $('modalHost').innerHTML = `<div class="modal"><div class="box">${html}</div></div>`;
+}
+$('modalHost').addEventListener('click', e => {
+  const b = e.target.closest('[data-act]'); if (!b) return;
+  if (b.dataset.act === 'mclose') $('modalHost').innerHTML = '';
+  if (b.dataset.act === 'go') travel();
+});
+
+sheet.addEventListener('click', e => {
+  const b = e.target.closest('[data-act]'); if (!b || b.disabled) return;
+  const a = b.dataset.act;
+  if (a === 'close') return closeSheet();
+  if (a === 'mode') { buyMode = b.dataset.m === 'max' ? 'max' : +b.dataset.m; }
+  if (a === 'lvl') {
+    const i = +b.dataset.i, { n, cost } = bulk(i);
+    if (S.cash >= cost && n > 0) {
+      const before = S.st[i]; S.cash -= cost; S.st[i] += n;
+      const hit = MILESTONES.find(m => before < m[0] && S.st[i] >= m[0]);
+      if (hit) toast(`${cityDef().foods[i][1]} Lv ${hit[0]}! ${hit[1]}`);
+    }
+  }
+  if (a === 'unlock') {
+    const i = +b.dataset.i, c = unlockCost(i);
+    if (S.cash >= c) { S.cash -= c; S.st[i] = 1; toast(`${cityDef().foods[i][0]} ${cityDef().foods[i][1]} 조리대 오픈!`); }
+  }
+  if (a === 'up') {
+    const u = cityUpgrades().find(x => x.idx === +b.dataset.idx);
+    if (u && !S.ups[u.idx] && S.cash >= u.cost) { S.cash -= u.cost; S.ups[u.idx] = 1; S.gems += 2; toast(`${u.name} 완료! 💎+2`); }
+  }
+  if (a === 'free') { if (Date.now() >= S.freeGemAt) { S.gems += 15; S.freeGemAt = Date.now() + 600000; toast('💎 15개 획득'); } }
+  if (a === 'chest') {
+    const k = +b.dataset.k, price = k ? 120 : 40, n = k ? 7 : 3;
+    if (S.gems >= price) {
+      S.gems -= price; lastReveal = [];
+      for (let j = 0; j < n; j++) {
+        const w = CARDS.map(c => c.rar === 0 ? 10 : c.rar === 1 ? (k ? 8 : 4) : (k ? 2.5 : 1));
+        let r = Math.random() * w.reduce((x, y) => x + y, 0), pick = 0;
+        while (r > w[pick]) { r -= w[pick]; pick++; }
+        const id = CARDS[pick].id; S.cards[id] = (S.cards[id] || 0) + 1; lastReveal.push(id);
+      }
+    }
+  }
+  if (a === 'reset') {
+    if (!resetArmed) { resetArmed = true; }
+    else { resetArmed = false; S = newSave(); S.seenIntro = true; chefs = []; customers = []; save(); closeSheet(); toast('새로 시작했어요'); return; }
+  }
+  save(); renderSheet(); renderHud();
+});
+$('navUp').onclick = () => openSheet('ups');
+$('navChest').onclick = () => { lastReveal = null; openSheet('chest'); };
+$('navCards').onclick = () => openSheet('cards');
+$('navMenu').onclick = () => { resetArmed = false; openSheet('menu'); };
+$('boostBtn').onclick = () => {
+  if (Date.now() < S.boostCd) return;
+  S.boostUntil = Date.now() + 120000; S.boostCd = Date.now() + 420000; toast('러시 아워! 2분간 수익 x2'); save(); renderHud();
+};
+$('nextCityBtn').onclick = () => {
+  const reward = 60 + 40 * S.city;
+  const nd = CITIES[(S.city + 1) % CITIES.length];
+  modal(`<div class="emo">🧳</div><h3>${cityDef().name} 완성!</h3>
+    <p>다음 도시 <b>${nd.name}</b>(으)로 떠나요.<br>현금과 조리대, 업그레이드는 초기화되고<br>장비와 보석은 그대로 가져가요.</p>
+    <p style="color:var(--gem);font-size:20px;margin:0">보상 💎 ${reward}</p>
+    <button class="buy big gold" data-act="go">출발!</button><button class="buy big" style="background:var(--panel-2);color:var(--text)" data-act="mclose">조금 더 머무르기</button>`);
+};
+function travel() {
+  const reward = 60 + 40 * S.city;
+  Object.assign(S, freshCity(S.city + 1));
+  S.gems += reward; chefs = []; customers = []; floaters = []; spawnT = 0.5;
+  $('modalHost').innerHTML = ''; closeSheet(); save(); renderHud();
+  toast(`${cityDef().name} 도착! 💎+${reward}`);
+}
+
+function renderHud() {
+  const cd = cityDef();
+  $('cityName').textContent = cd.name;
+  const p = cityProgress();
+  $('citySub').textContent = `도시 ${S.city + 1} · 완성도 ${Math.floor(p * 100)}%`;
+  $('progBar').style.width = (p * 100) + '%';
+  $('nextCityBtn').hidden = p < 1;
+  $('cash').textContent = fmt(S.cash);
+  $('gems').textContent = fmt(S.gems);
+  $('rate').textContent = S.rate ? fmt(S.rate) + '/초' : '';
+  const now = Date.now(), bb = $('boostBtn');
+  if (now < S.boostUntil) { bb.className = 'boost on'; $('boostTxt').textContent = 'x2 · ' + fmtTime((S.boostUntil - now) / 1000); bb.disabled = false; }
+  else if (now < S.boostCd) { bb.className = 'boost'; $('boostTxt').textContent = fmtTime((S.boostCd - now) / 1000); bb.disabled = true; }
+  else { bb.className = 'boost'; $('boostTxt').textContent = '수익 x2'; bb.disabled = false; }
+  const affordable = cityUpgrades().filter(u => !S.ups[u.idx] && S.cash >= u.cost && !(u.k === 'food' && S.st[u.i] === 0)).length;
+  $('upBadge').hidden = !affordable; $('upBadge').textContent = affordable;
+  $('chestBadge').hidden = !(now >= S.freeGemAt || S.gems >= 40);
+}
+
+function offlineCheck() {
+  const away = (Date.now() - S.lastSave) / 1000;
+  if (away < 60 || !S.rate) return;
+  const capped = Math.min(away, 7200);
+  const amt = S.rate * capped * 0.35 * (1 + 0.15 * cardLvl('safe'));
+  if (amt < 1) return;
+  S.cash += amt; S.totalEarned += amt;
+  modal(`<div class="emo">🌙</div><h3>다녀오셨어요!</h3><p>${fmtTime(capped)} 동안 가게가 벌어 둔 돈이에요.</p>
+    <p style="color:var(--cash);font-size:24px;margin:0">💵 ${fmt(amt)}</p><button class="buy big" data-act="mclose">받기</button>`);
+}
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) save(); else { offlineCheck(); last = performance.now(); }
+});
+
+// ---------- loop ----------
+let last = performance.now(), hudT = 0, saveT = 0;
+function frame(now) {
+  const dt = Math.min(0.1, (now - last) / 1000); last = now; time += dt;
+  update(dt); draw();
+  hudT += dt; saveT += dt;
+  if (hudT > 0.25) { hudT = 0; renderHud(); if (sheetMode && sheetMode !== 'chest' || (sheetMode === 'chest' && !lastReveal)) refreshSheetSoft(); }
+  if (saveT > 5) { saveT = 0; save(); }
+  requestAnimationFrame(frame);
+}
+// refresh the open sheet without stealing a click mid-press
+let pressing = false;
+sheet.addEventListener('pointerdown', () => pressing = true);
+window.addEventListener('pointerup', () => setTimeout(() => pressing = false, 50));
+function refreshSheetSoft() { if (!pressing && sheetMode !== 'cards') renderSheet(); }
+
+function start(hotData) {
+  S = (hotData && hotData.save) ? Object.assign(newSave(), hotData.save) : (load() || newSave());
+  resize(); renderHud();
+  if (!S.seenIntro) {
+    S.seenIntro = true;
+    modal(`<div class="emo">🍔</div><h3>맛집 원정대</h3><p>셰프가 손님 주문을 요리해서 돈을 벌어요.<br>조리대를 눌러 레벨을 올리고, 새 조리대를 열고,<br>업그레이드를 모두 사면 다음 도시로 떠나요!</p><button class="buy big gold" data-act="mclose">가게 열기</button>`);
+  } else offlineCheck();
+  requestAnimationFrame(frame);
+}
+window.claude?.hot?.snapshot?.(() => ({ save: S }));
+window.claude?.hot?.ready ? window.claude.hot.ready(start) : start(window.claude?.hot?.data ?? {});
+})();
+</script>
+</body>
+</html>
